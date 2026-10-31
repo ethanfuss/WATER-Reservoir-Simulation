@@ -1,189 +1,213 @@
-# core/rock_fluid.py
+"""
+core/rock_fluid.py
+Handles Dykstra-Parsons Permeability Variation (V) and Relative Permeability
+Normalization & Power-Law Regression (a, b).
+
+Scan References:
+- Scan Page 2–3: "Calculation of Permeability Variation" & "Calculation of Fractional Flow"
+- Scan Page 15 (Table 3, Steps 3 & 4): Interactive options to compute or enter V and (a, b)
+- Scan Page 18 (Table 5, table5.jpg): Handwritten Swn formula and relative permeability table
+- Scan Page 19 (Table 6, table6.jpg): Core permeability layers
+- Scan Page 26 (Figure 1A): Subroutines KVA, SWN, LIN1
+- Scan Page 34 (Figure 6, fig6.jpg): Permeability Ratio (kro/krw) vs. Normalized Saturation (Swn)
+- Scan Page 41 (Appendix A, Eqs. 1, 2, 3): V, kro/krw = a * Swn^(-b), and fw
+"""
+
+from typing import List, Dict, Any
 import numpy as np
-from scipy.stats import linregress
-from scipy.interpolate import interp1d
-from typing import List, Dict, Optional, Union, Any
+import pandas as pd
 
 
-class RockFluidProperties:
+def calculate_permeability_variation(core_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Module 1: Reservoir Initialization, Heterogeneity & Rock-Fluid Characterization.
-    Replicates HP-41 main initialization (Appendix C, p. 52; Table 3, p. 15) and
-    subroutines KVA, SWN, and LIN1 from ARCO TSR 84-28.
+    Calculates Dykstra-Parsons permeability variation V from core layer permeabilities
+    using Bixler's log-normal formulation (Subroutine KVA).
+
+    Scan References:
+    - Scan Page 3: "In this program, V can be either entered directly or estimated
+      using the formulation of Bixler by entering the permeability of each layer."
+    - Scan Page 26 (Figure 1A): SUBR: KVA
+    - Scan Page 41 (Appendix A, Eq. 1):
+      V = (k50 - k84.1) / k50 = (10^(mean_log_k) - 10^(mean_log_k - sigma)) / 10^(mean_log_k)
     """
+    df = pd.DataFrame(core_rows).copy()
+    df = df[df["k_md"] > 0].sort_values(by="k_md", ascending=False).reset_index(drop=True)
+    if len(df) < 2:
+        raise ValueError("At least two positive permeability layers are required to estimate V.")
 
-    @staticmethod
-    def convert_acft_to_rb(ac_ft: float, porosity: float = 1.0) -> float:
-        """
-        Converts Acre-Feet to Reservoir Barrels (1 Ac-ft = 7,758 bbl).
-        In Example 2 (p. 6), Vp = 220 Ac-ft = 1,706,760 rb.
-        """
-        return float(ac_ft * 7758.0 * porosity)
+    df["Layer_Rank"] = np.arange(1, len(df) + 1)
+    df["log10_k"] = np.log10(df["k_md"].astype(float))
+    if "Thickness_ft" not in df.columns:
+        df["Thickness_ft"] = 1.0
 
-    @staticmethod
-    def initialize_reservoir(
-        vp_rb: float,
-        swi: float,
-        sor: float,
-        sgi: float,
-        bo: float,
-        bw: float,
-        iw_bbd: float
-    ) -> Dict[str, float]:
-        """
-        Replicates lines 09-14 and 50-75 of Appendix C (p. 52) and Table 3 Step 2 (p. 15).
-        Computes movable saturation range (Reg 20), OOIP (Reg 42), and Fill-up Time (Reg 43).
-        """
-        movable_sat_range = 1.0 - swi - sor
-        ooip_stb = (vp_rb / bo) * (1.0 - swi - sgi)
-        t_fillup_yr = (sgi * vp_rb) / (iw_bbd * bw * 365.0) if (iw_bbd * bw) > 0 else 0.0
+    # Cumulative probability (% of samples / thickness with larger permeability) for log-normal plot (Scan Page 3)
+    total_h = df["Thickness_ft"].sum()
+    df["Cum_Thickness_ft"] = df["Thickness_ft"].cumsum()
+    df["Pct_Greater"] = ((df["Cum_Thickness_ft"] - 0.5 * df["Thickness_ft"]) / total_h) * 100.0
 
-        return {
-            "movable_sat_range_reg20": round(float(movable_sat_range), 4),
-            "OOIP_STB": round(float(ooip_stb), 2),
-            "t_fillup_years": round(float(t_fillup_yr), 4)
-        }
+    # Scan Page 41, Eq. 1 (Subroutine KVA uses sample standard deviation of log10(k))
+    mean_log_k = float(df["log10_k"].mean())
+    sigma_log_k = float(df["log10_k"].std(ddof=1))
 
-    @staticmethod
-    def calculate_permeability_variation(
-        permeabilities: Optional[Union[List[float], np.ndarray]] = None,
-        manual_v: Optional[float] = None,
-        ddof: int = 1
-    ) -> Dict[str, float]:
-        """
-        Computes Dykstra-Parsons Permeability Variation (V) via Subroutine KVA (Eq. 1, p. 41)
-        or accepts direct manual V entry per Flowchart 1A (p. 26).
-        """
-        if manual_v is not None:
-            return {
-                "V": round(float(manual_v), 4),
-                "k50": np.nan,
-                "k84_1": np.nan,
-                "mean_log_k": np.nan,
-                "std_log_k": np.nan
-            }
+    k50 = 10.0 ** mean_log_k
+    k84_1 = 10.0 ** (mean_log_k - sigma_log_k)
+    v_bixler = (k50 - k84_1) / k50
 
-        if permeabilities is None or len(permeabilities) < 2:
-            raise ValueError("Provide at least 2 permeability values or specify manual_v.")
+    return {
+        "V": float(v_bixler),
+        "k50": float(k50),
+        "k84_1": float(k84_1),
+        "mean_log_k": mean_log_k,
+        "sigma_log_k": sigma_log_k,
+        "layer_df": df,
+    }
 
-        k = np.asarray(permeabilities, dtype=float)
-        if np.any(k <= 0):
-            raise ValueError("Permeability values must be strictly positive (> 0 md).")
 
-        log_k = np.log10(k)
-        mean_log_k = float(np.mean(log_k))
-        std_log_k = float(np.std(log_k, ddof=ddof))
+def calculate_normalized_saturation(sw: float, swi: float, sor: float) -> float:
+    """
+    Calculates Normalized Water Saturation (Swn) according to Subroutine SWN.
 
-        k_50 = 10.0 ** mean_log_k
-        k_841 = 10.0 ** (mean_log_k - std_log_k)
-        v = 1.0 - (10.0 ** (-std_log_k))
+    Scan References:
+    - Scan Page 18 (Table 5, table5.jpg): Handwritten formula at bottom of Table 5:
+      Swn = (Sw - Swi) / (1 - Sw - Sor)
+      Verified against handwritten column values in table5.jpg:
+      Sw=0.30 -> 0.5, Sw=0.40 -> 1.0, Sw=0.45 -> 1.4, Sw=0.50 -> 2.0,
+      Sw=0.55 -> 3.0, Sw=0.60 -> 5.0, Sw=0.65 -> 11.0.
+    - Scan Page 26 (Figure 1A): SUBR: SWN
+    - Scan Page 41 (Appendix A): Required for Eqs. 2 and 4.
+    """
+    denom = 1.0 - sw - sor
+    if denom <= 1e-12 or sw <= swi:
+        return 0.0
+    return float((sw - swi) / denom)
 
-        return {
-            "V": round(float(v), 4),
-            "k50": round(float(k_50), 3),
-            "k84_1": round(float(k_841), 3),
-            "mean_log_k": round(mean_log_k, 5),
-            "std_log_k": round(std_log_k, 5)
-        }
 
-    @staticmethod
-    def calculate_swn(
-        sw: Union[float, np.ndarray],
-        swi: float,
-        sor: float,
-        formulation: str = "TSR"
-    ) -> np.ndarray:
-        """
-        Calculates normalized water saturation (Swn) per Subroutine SWN.
-        - 'TSR': (Sw - Swi) / (1 - Sw - Sor) [Required by TSR 84-28 Eq. 2 & Eq. 4]
-        - 'standard': (Sw - Swi) / (1 - Swi - Sor)
-        """
-        sw_arr = np.asarray(sw, dtype=float)
-        if formulation == "TSR":
-            denom = 1.0 - sw_arr - sor
-            with np.errstate(divide="ignore", invalid="ignore"):
-                return np.where(denom > 0, (sw_arr - swi) / denom, np.nan)
-        elif formulation == "standard":
-            return (sw_arr - swi) / (1.0 - swi - sor)
-        raise ValueError("formulation must be 'TSR' or 'standard'.")
+def fit_rel_perm_power_law(
+    rel_perm_rows: List[Dict[str, Any]],
+    swi: float,
+    sor: float,
+) -> Dict[str, Any]:
+    """
+    Fits the power-law correlation kro/krw = a * Swn^(-b) via log-linear least squares
+    regression (Subroutine LIN1).
 
-    @classmethod
-    def fit_relative_permeability(
-        cls,
-        sw: Optional[Union[List[float], np.ndarray]] = None,
-        kro: Optional[Union[List[float], np.ndarray]] = None,
-        krw: Optional[Union[List[float], np.ndarray]] = None,
-        swi: float = 0.0,
-        sor: float = 0.0,
-        manual_a: Optional[float] = None,
-        manual_b: Optional[float] = None,
-        formulation: str = "TSR",
-        points_slice: Optional[slice] = None
-    ) -> Dict[str, Union[float, np.ndarray]]:
-        """
-        Fits kro/krw = a * Swn^(-b) via log-linear regression (Subroutine LIN1)
-        or accepts manual (a, b) per Flowchart 1A (p. 26).
-        """
-        if manual_a is not None and manual_b is not None:
-            return {
-                "a": round(float(manual_a), 4),
-                "b": round(float(manual_b), 4),
-                "r_squared": 1.0,
-                "swn_fitted": np.array([]),
-                "ratio_fitted": np.array([])
-            }
+    Scan References:
+    - Scan Page 3: "To simplify the calculations, a simple correlation of kro/krw vs.
+      normalized water saturation, Swn, was chosen (Eq. 2 in Appendix A)."
+    - Scan Page 26 (Figure 1A): SUBR: LIN1
+    - Scan Page 34 (Figure 6, fig6.jpg): Log-log plot of kro/krw vs. Swn
+    - Scan Page 41 (Appendix A, Eq. 2): kro / krw = a * Swn^(-b)
+    """
+    swn_vals = []
+    ratio_vals = []
 
-        sw_arr = np.asarray(sw, dtype=float)
-        kro_arr = np.asarray(kro, dtype=float)
-        krw_arr = np.asarray(krw, dtype=float)
+    for row in rel_perm_rows:
+        sw = float(row["Sw"])
+        kro = float(row["kro"])
+        krw = float(row["krw"])
+        include = bool(row.get("fit_include", True))
+        if include and kro > 0 and krw > 0 and (sw > swi) and (1.0 - sw - sor > 1e-9):
+            swn = calculate_normalized_saturation(sw, swi, sor)
+            swn_vals.append(swn)
+            ratio_vals.append(kro / krw)
 
-        if points_slice is not None:
-            sw_arr = sw_arr[points_slice]
-            kro_arr = kro_arr[points_slice]
-            krw_arr = krw_arr[points_slice]
+    # Fallback: if fewer than 2 points marked fit_include, use all valid interior points
+    if len(swn_vals) < 2:
+        swn_vals = []
+        ratio_vals = []
+        for row in rel_perm_rows:
+            sw = float(row["Sw"])
+            kro = float(row["kro"])
+            krw = float(row["krw"])
+            if kro > 0 and krw > 0 and (sw > swi) and (1.0 - sw - sor > 1e-9):
+                swn_vals.append(calculate_normalized_saturation(sw, swi, sor))
+                ratio_vals.append(kro / krw)
 
-        swn = cls.calculate_swn(sw_arr, swi, sor, formulation=formulation)
-        valid = (swn > 0) & (kro_arr > 0) & (krw_arr > 0) & (~np.isnan(swn))
+    if len(swn_vals) < 2:
+        raise ValueError("At least two valid relative permeability points (kro > 0, krw > 0) are required.")
 
-        if np.sum(valid) < 2:
-            raise ValueError("At least 2 valid saturation points are required for regression.")
+    log_x = np.log(np.array(swn_vals, dtype=float))
+    log_y = np.log(np.array(ratio_vals, dtype=float))
 
-        swn_v = swn[valid]
-        ratio_v = kro_arr[valid] / krw_arr[valid]
+    # Linear regression: ln(kro/krw) = ln(a) - b * ln(Swn)
+    slope, intercept = np.polyfit(log_x, log_y, 1)
+    b = float(-slope)
+    a = float(np.exp(intercept))
 
-        res: Any = linregress(np.log10(swn_v), np.log10(ratio_v))
-        slope = float(res.slope)
-        intercept = float(res.intercept)
-        r_val = float(res.rvalue)
+    # Calculate R^2 of log-log fit
+    y_pred = intercept + slope * log_x
+    ss_res = float(np.sum((log_y - y_pred) ** 2))
+    ss_tot = float(np.sum((log_y - np.mean(log_y)) ** 2))
+    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
 
-        a = 10.0 ** intercept
-        b = -slope
-        r_squared = r_val ** 2
+    return {
+        "a": a,
+        "b": b,
+        "r_squared": r_squared,
+        "n_points_used": len(swn_vals),
+    }
 
-        return {
-            "a": round(a, 4),
-            "b": round(b, 4),
-            "r_squared": round(r_squared, 5),
-            "swn_fitted": np.round(swn_v, 4),
-            "ratio_fitted": np.round(ratio_v, 4)
-        }
 
-    @staticmethod
-    def build_krw_interpolator(
-        sw: Union[List[float], np.ndarray],
-        krw: Union[List[float], np.ndarray],
-        swi: float,
-        sor: float
-    ):
-        """
-        Constructs an automated interpolator for krw(Sw_bar) across WOR steps.
-        """
-        sw_arr = np.asarray(sw, dtype=float)
-        krw_arr = np.asarray(krw, dtype=float)
-        return interp1d(
-            sw_arr,
-            krw_arr,
-            kind="linear",
-            bounds_error=False,
-            fill_value="extrapolate" , # type: ignore[arg-type]
-        )  
+def build_rel_perm_table(
+    rel_perm_rows: List[Dict[str, Any]],
+    swi: float,
+    sor: float,
+    mu_o: float,
+    mu_w: float,
+    a: float,
+    b: float,
+) -> pd.DataFrame:
+    """
+    Builds the complete intermediate Relative Permeability & Fractional Flow table
+    matching Table 5 (Scan Page 18, table5.jpg) and Figure 6 (Scan Page 34, fig6.jpg).
+
+    Columns generated:
+    - Sw (fraction)
+    - Swn (normalized saturation, handwritten col in table5.jpg)
+    - kro (fraction)
+    - krw (fraction)
+    - kro/krw Actual (handwritten col in table5.jpg & circles in fig6.jpg)
+    - kro/krw Correlated (a * Swn^(-b), squares/triangles in fig6.jpg)
+    - fw Actual (Table 5 col 4, Eq. 3 using actual kro/krw)
+    - fw Correlated (Eq. 3 using correlated kro/krw)
+    """
+    records = []
+    for row in rel_perm_rows:
+        sw = float(row["Sw"])
+        kro = float(row["kro"])
+        krw = float(row["krw"])
+        include = bool(row.get("fit_include", True))
+
+        if sw <= swi or krw <= 0.0:
+            swn = np.nan
+            ratio_actual = np.nan
+            ratio_corr = np.nan
+            fw_actual = 0.0
+            fw_corr = 0.0
+        elif (1.0 - sw - sor) <= 1e-9 or kro <= 0.0:
+            swn = np.nan
+            ratio_actual = 0.0 if krw > 0 else np.nan
+            ratio_corr = 0.0
+            fw_actual = 1.0
+            fw_corr = 1.0
+        else:
+            swn = calculate_normalized_saturation(sw, swi, sor)
+            ratio_actual = kro / krw
+            ratio_corr = a * (swn ** (-b))
+            # Scan Page 41, Eq. 3: fw = 1 / (1 + (kro/krw) * (mu_w / mu_o))
+            fw_actual = 1.0 / (1.0 + ratio_actual * (mu_w / mu_o))
+            fw_corr = 1.0 / (1.0 + ratio_corr * (mu_w / mu_o))
+
+        records.append({
+            "Sw": sw,
+            "Swn": swn,
+            "kro": kro,
+            "krw": krw,
+            "kro_krw_actual": ratio_actual,
+            "kro_krw_corr": ratio_corr,
+            "fw_actual": fw_actual,
+            "fw_corr": fw_corr,
+            "fit_include": include,
+        })
+
+    return pd.DataFrame(records)
