@@ -1,8 +1,8 @@
 """
 core/presets.py
 Preset input parameters and validation tables for Example 1 and Example 2.
-All reservoir parameters are loaded dynamically into the UI so nothing is hardcoded
-in the mathematical engines.
+All reservoir parameters are loaded dynamically into the UI so nothing is
+hardcoded in the mathematical engines.
 
 Scan References:
 - Scan Page 5 (e1input.jpg): Example 1 reservoir properties
@@ -17,7 +17,7 @@ Scan References:
 - Scan Page 43 (Eq. 16): Vertical coverage regression constants a1, a2, a3
 """
 
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 # Scan Page 13, Table 1: Coefficients in Areal Sweep Efficiency Correlations (Eq. 15, Scan Page 43)
 # Valid for 0 < M < 10 before and after breakthrough (Scan Page 4)
@@ -121,7 +121,7 @@ def get_example_1_preset() -> Dict[str, Any]:
             {"Tracer": "HTO",   "t_half_days": 4475.0,  "D_pCi_bbl": 1.0e6,  "m": 50.0, "MPC_pCi_bbl": 4.768e8},
             {"Tracer": "Co-60", "t_half_days": 1920.0,  "D_pCi_bbl": 4750.0, "m": 50.0, "MPC_pCi_bbl": 1.513e6},
             {"Tracer": "Co-57", "t_half_days": 270.0,   "D_pCi_bbl": 4750.0, "m": 50.0, "MPC_pCi_bbl": 7.930e7},
-            {"Tracer": "Ni-63", "t_half_days": 36500.0, "D_pCi_bbl": 25000.0,"m": 50.0, "MPC_pCi_bbl": 4.770e6},
+            {"Tracer": "Ni-63", "t_half_days": 36500.0, "D_pCi_bbl": 25000.0, "m": 50.0, "MPC_pCi_bbl": 4.770e6},
         ],
     }
 
@@ -159,14 +159,14 @@ def get_example_2_preset() -> Dict[str, Any]:
         "wor_schedule": DEFAULT_WOR_SCHEDULE.copy(),
         # Scan Page 21 (Table 8) & Scan Page 34 (Figure 6) & Scan Page 38 (Figure 10)
         "rel_perm_table": [
-            {"Sw": 0.40, "kro": 0.800, "krw": 0.000,  "fit_include": False},
-            {"Sw": 0.45, "kro": 0.590, "krw": 0.015,  "fit_include": False},
-            {"Sw": 0.50, "kro": 0.390, "krw": 0.046,  "fit_include": True},
-            {"Sw": 0.55, "kro": 0.232, "krw": 0.087,  "fit_include": True},
-            {"Sw": 0.60, "kro": 0.105, "krw": 0.138,  "fit_include": True},
-            {"Sw": 0.65, "kro": 0.032, "krw": 0.174,  "fit_include": True},
-            {"Sw": 0.685,"kro": 0.005, "krw": 0.250,  "fit_include": True},
-            {"Sw": 0.70, "kro": 0.000, "krw": 0.300,  "fit_include": False},
+            {"Sw": 0.40,  "kro": 0.800, "krw": 0.000, "fit_include": False},
+            {"Sw": 0.45,  "kro": 0.590, "krw": 0.015, "fit_include": False},
+            {"Sw": 0.50,  "kro": 0.390, "krw": 0.046, "fit_include": True},
+            {"Sw": 0.55,  "kro": 0.232, "krw": 0.087, "fit_include": True},
+            {"Sw": 0.60,  "kro": 0.105, "krw": 0.138, "fit_include": True},
+            {"Sw": 0.65,  "kro": 0.032, "krw": 0.174, "fit_include": True},
+            {"Sw": 0.685, "kro": 0.005, "krw": 0.250, "fit_include": True},
+            {"Sw": 0.70,  "kro": 0.000, "krw": 0.300, "fit_include": False},
         ],
         # Scan Page 22 (Table 9): Core Permeabilities yielding V = 0.624 (Scan Page 7)
         "core_table": [
@@ -186,7 +186,7 @@ def get_example_2_preset() -> Dict[str, Any]:
             {"Tracer": "HTO",   "t_half_days": 4475.0,  "D_pCi_bbl": 1.0e6,  "m": 50.0, "MPC_pCi_bbl": 4.768e8},
             {"Tracer": "Co-60", "t_half_days": 1920.0,  "D_pCi_bbl": 4750.0, "m": 50.0, "MPC_pCi_bbl": 1.513e6},
             {"Tracer": "Co-57", "t_half_days": 270.0,   "D_pCi_bbl": 4750.0, "m": 50.0, "MPC_pCi_bbl": 7.930e7},
-            {"Tracer": "Ni-63", "t_half_days": 36500.0, "D_pCi_bbl": 25000.0,"m": 50.0, "MPC_pCi_bbl": 4.770e6},
+            {"Tracer": "Ni-63", "t_half_days": 36500.0, "D_pCi_bbl": 25000.0, "m": 50.0, "MPC_pCi_bbl": 4.770e6},
         ],
     }
 
@@ -217,6 +217,7 @@ EXAMPLE_1_CRAIG_CURVE: List[Dict[str, float]] = [
 ]
 
 # Scan Page 14, Table 2: Comparison Between Coverage Values (Dykstra-Parsons Ref. 3 vs Eq. 16)
+# Note: Row 31 M fixed from misprinted -1.0 to 1.0
 TABLE_2_BENCHMARK: List[Dict[str, float]] = [
     {"WOR": 0.1,  "M": 0.1,  "V": 0.3, "Y": 16.24,   "C_Ref3": 0.74, "C_Eq16": 0.77},
     {"WOR": 0.1,  "M": 0.1,  "V": 0.5, "Y": 6.57,    "C_Ref3": 0.54, "C_Eq16": 0.59},
